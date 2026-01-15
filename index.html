@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Mobile VR Tracer</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  background: black;
+  overflow: hidden;
+}
+
+.vr {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+}
+
+.eye {
+  position: relative;
+  width: 50vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+video {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.reticle {
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:12px;
+  height:12px;
+  border:2px solid cyan;
+  border-radius:50%;
+  transform:translate(-50%,-50%);
+}
+</style>
+</head>
+
+<body>
+
+<div class="vr">
+  <div class="eye">
+    <video id="cam" autoplay muted playsinline></video>
+    <canvas id="cvL"></canvas>
+    <div class="reticle"></div>
+  </div>
+  <div class="eye">
+    <video id="camMirror" autoplay muted playsinline></video>
+    <canvas id="cvR"></canvas>
+    <div class="reticle"></div>
+  </div>
+</div>
+
+<script>
+const video = document.getElementById("cam");
+const video2 = document.getElementById("camMirror");
+
+const cvL = document.getElementById("cvL");
+const cvR = document.getElementById("cvR");
+const ctxL = cvL.getContext("2d");
+const ctxR = cvR.getContext("2d");
+
+function resize() {
+  [cvL, cvR].forEach(c => {
+    c.width = c.parentElement.clientWidth;
+    c.height = c.parentElement.clientHeight;
+  });
+}
+window.addEventListener("resize", resize);
+resize();
+
+// 📷 Kamera aç
+navigator.mediaDevices.getUserMedia({
+  video: {
+    facingMode: "environment"
+  },
+  audio: false
+}).then(stream => {
+  video.srcObject = stream;
+  video2.srcObject = stream;
+});
+
+let target = null;
+let lastTime = performance.now();
+
+// 🧠 AI yükle
+cocoSsd.load().then(model => {
+  setInterval(async () => {
+    if (video.readyState < 2) return;
+
+    const now = performance.now();
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+
+    ctxL.clearRect(0,0,cvL.width,cvL.height);
+    ctxR.clearRect(0,0,cvR.width,cvR.height);
+
+    const preds = await model.detect(video);
+    const person = preds.find(p => p.class === "person");
+
+    if (person) {
+      let [x,y,w,h] = person.bbox;
+
+      const sx = cvL.width / video.videoWidth;
+      const sy = cvL.height / video.videoHeight;
+      x*=sx; y*=sy; w*=sx; h*=sy;
+
+      if (!target) target = {x,y,w,h,vx:0,vy:0};
+      target.vx = (x - target.x) / dt;
+      target.vy = (y - target.y) / dt;
+
+      Object.assign(target,{x,y,w,h,lastSeen:now,pred:false});
+    }
+    else if (target && now - target.lastSeen < 2000) {
+      // 🟤 DUVAR ARKASI (TAHMİN)
+      target.x += target.vx * dt;
+      target.y += target.vy * dt;
+      target.pred = true;
+    }
+    else {
+      target = null;
+    }
+
+    if (target) draw(target);
+  }, 150);
+});
+
+function draw(t){
+  const real = "#ff0000";   // kırmızı
+  const wall = "#800020";   // bordo
+  const head = "#00ffff";   // kafa
+
+  [ctxL, ctxR].forEach(ctx => {
+    ctx.strokeStyle = t.pred ? wall : real;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(t.x, t.y, t.w, t.h);
+
+    // 🎯 KAFA HITBOX (üst %25)
+    ctx.strokeStyle = head;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(t.x, t.y, t.w, t.h * 0.25);
+
+    ctx.fillStyle = t.pred ? wall : real;
+    ctx.font = "14px Arial";
+    ctx.fillText(t.pred ? "WALL" : "TARGET", t.x, t.y - 6);
+  });
+}
+</script>
+
+</body>
+</html>
