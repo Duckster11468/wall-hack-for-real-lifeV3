@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Camera Hitbox + Wallhack Demo</title>
+
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  background: black;
+  overflow: hidden;
+}
+
+video, canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+canvas {
+  pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<video id="cam" autoplay playsinline></video>
+<canvas id="overlay"></canvas>
+
+<script>
+const video = document.getElementById("cam");
+const canvas = document.getElementById("overlay");
+const ctx = canvas.getContext("2d");
+
+let target = {
+  x: 300,
+  y: 200,
+  vx: 2,
+  vy: 1,
+  lastSeen: Date.now(),
+  visible: true
+};
+
+// Kamera
+navigator.mediaDevices.getUserMedia({
+  video: { facingMode: "environment" },
+  audio: false
+}).then(stream => video.srcObject = stream);
+
+// Boyut ayarı
+video.onloadedmetadata = () => {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  loop();
+};
+
+// Simülasyon (adam yürüyor gibi)
+setInterval(() => {
+  target.x += target.vx;
+  target.y += target.vy;
+
+  if (target.x < 50 || target.x > canvas.width - 50) target.vx *= -1;
+  if (target.y < 50 || target.y > canvas.height - 100) target.vy *= -1;
+}, 30);
+
+// Görünür / duvar arkası simülasyonu
+setInterval(() => {
+  target.visible = !target.visible;
+  if (target.visible) target.lastSeen = Date.now();
+}, 4000);
+
+function drawHitbox(x, y, color, alpha=1) {
+  ctx.globalAlpha = alpha;
+
+  // Vücut
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(x-30, y-60, 60, 120);
+
+  // 🔵 Kafa hitbox
+  ctx.strokeStyle = "#00bfff";
+  ctx.strokeRect(x-15, y-85, 30, 25);
+
+  ctx.globalAlpha = 1;
+}
+
+function loop() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  const now = Date.now();
+  const dt = (now - target.lastSeen) / 1000;
+
+  if (target.visible) {
+    // 🔴 GERÇEK GÖRÜNEN
+    drawHitbox(target.x, target.y, "red");
+    target.lastSeen = now;
+  } else if (dt < 2) {
+    // 🟥 WALLHACK (tahmin)
+    const px = target.x + target.vx * dt * 30;
+    const py = target.y + target.vy * dt * 30;
+    drawHitbox(px, py, "#800020", 0.6);
+  }
+
+  // VR için orta çizgi
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(canvas.width/2, 0);
+  ctx.lineTo(canvas.width/2, canvas.height);
+  ctx.stroke();
+
+  requestAnimationFrame(loop);
+}
+</script>
+
+</body>
+</html>
